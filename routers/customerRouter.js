@@ -2,13 +2,11 @@
 const express = require("express");
 const multer = require("multer");
 const customerController = require("../controllers/customerController");
-const { protect, restrictTo } = require("../controllers/authController");
-
+const authController = require("../controllers/authController");
 
 const router = express.Router();
 
-
-router.use(protect, restrictTo("VXR"));
+router.use(authController.protect, authController.restrictTo("VXR"));
 
 const upload = multer({ dest: "uploads/" });
 router.post("/", customerController.createCustomer);
