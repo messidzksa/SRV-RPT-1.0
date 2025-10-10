@@ -4,8 +4,8 @@
   "description": "A Node.js application for handling service report form submissions",
   "main": "app.js",
   "scripts": {
-    "start:dev": "node server.js",
-    "dev": "nodemon server.js"
+    "start:dev": "node app.js",
+    "dev": "nodemon app.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
