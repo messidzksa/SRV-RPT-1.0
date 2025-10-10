@@ -44,12 +44,13 @@ exports.uploadSpares = catchAsync(async (req, res, next) => {
   const filePath = req.file.path;
   let rows = [];
 
+  // 1️⃣ Read file and parse Excel/CSV
   try {
     const workbook = XLSX.readFile(filePath);
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
     rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
   } catch (err) {
-    fs.unlinkSync(filePath);
+    await fs.promises.unlink(filePath).catch(() => {});
     return res.status(400).json({
       status: "fail",
       message: "Invalid file format. Please upload a valid CSV or Excel file.",
@@ -57,14 +58,21 @@ exports.uploadSpares = catchAsync(async (req, res, next) => {
   }
 
   if (!rows.length) {
-    fs.unlinkSync(filePath);
+    await fs.promises.unlink(filePath).catch(() => {});
     return res.status(400).json({
       status: "fail",
       message: "Empty file. Please include at least one row.",
     });
   }
 
-  const createdSpares = [];
+  // 2️⃣ Preprocess names and fetch existing spares
+  const names = [...new Set(rows.map((r) => r.name?.trim()).filter(Boolean))];
+
+  const existingSpares = await Spare.find({ name: { $in: names } });
+  const existingMap = new Set(existingSpares.map((s) => s.name));
+
+  // 3️⃣ Build insert list in memory
+  const sparesToInsert = [];
   const skippedRows = [];
 
   for (const row of rows) {
@@ -74,31 +82,45 @@ exports.uploadSpares = catchAsync(async (req, res, next) => {
       continue;
     }
 
-    const existing = await Spare.findOne({ name });
-    if (existing) {
+    if (existingMap.has(name)) {
       skippedRows.push({ row, reason: "Duplicate name in DB" });
       continue;
     }
 
-    const spare = await Spare.create({ name });
-    createdSpares.push(spare);
+    if (sparesToInsert.find((s) => s.name === name)) {
+      skippedRows.push({ row, reason: "Duplicate name in file" });
+      continue;
+    }
+
+    sparesToInsert.push({ name });
+    existingMap.add(name); // mark as used
   }
 
-  // Clean temp file
-  try {
-    fs.unlinkSync(filePath);
-  } catch (err) {
-    console.warn("⚠️ Could not delete temp file:", err.message);
+  // 4️⃣ Bulk insert all spares
+  let createdSpares = [];
+  if (sparesToInsert.length > 0) {
+    const inserted = await Spare.insertMany(sparesToInsert, {
+      ordered: false,
+    });
+    createdSpares = inserted.map((s) => ({
+      name: s.name,
+      code: s.code,
+    }));
   }
 
+  // 5️⃣ Async cleanup
+  fs.promises
+    .unlink(filePath)
+    .catch((err) =>
+      console.warn("⚠️ Could not delete temp file:", err.message)
+    );
+
+  // 6️⃣ Response
   res.status(201).json({
     status: "success",
     results: createdSpares.length,
     skipped: skippedRows.length,
-    spares: createdSpares.map((s) => ({
-      name: s.name,
-      code: s.code,
-    })),
+    spares: createdSpares,
     skippedRows,
   });
 });
