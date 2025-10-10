@@ -13,7 +13,6 @@ const connectDB = async () => {
   }
 };
 
-// Close the MongoDB connection when the application terminates
 process.on("SIGINT", async () => {
   await mongoose.connection.close();
   console.log("MongoDB connection closed");

@@ -1,4 +1,3 @@
-// app.js
 const express = require("express");
 const serviceReportRoutes = require("./routers/formRouter");
 const customerRoutes = require("./routers/customerRouter");
@@ -14,9 +13,9 @@ const mongoSanitize = require("express-mongo-sanitize");
 const xss = require("xss-clean");
 const app = express();
 connectDB()
-  .then(() => console.log("✅ Database connected successfully"))
+  .then(() => console.log("Database connected successfully"))
   .catch((err) => {
-    console.error("❌ DB Connection failed:", err);
+    console.error("DB Connection failed:", err);
     process.exit(1);
   });
 // Middleware
