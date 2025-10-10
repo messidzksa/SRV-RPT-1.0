@@ -3,7 +3,7 @@ const multer = require("multer");
 const authController = require("../controllers/authcontroller");
 const spareController = require("../controllers/sparePartsController");
 const router = express.Router();
-const upload = multer({ dest: "uploads/" });
+const upload = multer({ dest: "/tmp/uploads" });
 router.use(authController.protect, authController.restrictTo("VXR"));
 // Admin-only routes
 // CRUD Routes

@@ -8,7 +8,7 @@ const router = express.Router();
 
 router.use(authController.protect, authController.restrictTo("VXR"));
 
-const upload = multer({ dest: "uploads/" });
+const upload = multer({ dest: "/tmp/uploads" });
 router.post("/", customerController.createCustomer);
 router.post(
   "/upload-csv",
