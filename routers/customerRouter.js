@@ -2,7 +2,7 @@
 const express = require("express");
 const multer = require("multer");
 const customerController = require("../controllers/customerController");
-const authController = require("../controllers/authController");
+const authController = require("../controllers/authcontroller");
 
 const router = express.Router();
 

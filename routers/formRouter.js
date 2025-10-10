@@ -1,7 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const serviceReportService = require("../services/FormService");
-const authController = require("../controllers/authController");
+const authController = require("../controllers/authcontroller");
 router.get("/", (req, res) => {
   res.send("Service Report API active 🚀");
 });
