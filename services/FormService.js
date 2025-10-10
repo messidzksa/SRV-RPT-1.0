@@ -1,0 +1,108 @@
+const ServiceReport = require("../models/FormModel");
+const catchAsync = require("../utils/catchAsync");
+const AppError = require("../utils/appError");
+/* ----------------------------- Create Report ----------------------------- */
+exports.createServiceReport = catchAsync(async (req, res, next) => {
+  const user = req.user;
+
+  // 🧩 Role-based enforcement
+  if (user.role === "ENG") {
+    // Engineers can only assign themselves and their region
+    req.body.engineerName = user._id;
+    req.body.region = user.region;
+  }
+
+  if (user.role === "BM") {
+    // Branch Managers can only assign their own region
+    req.body.region = user.region;
+  }
+
+  // CM and Admin (VXR) can post freely
+  const report = await ServiceReport.create(req.body);
+
+  res.status(201).json({
+    status: "success",
+    message: "Report created successfully",
+    data: { report },
+  });
+});
+/* ---------------------------- Get All Reports ---------------------------- */
+exports.getAllServiceReports = catchAsync(async (req, res, next) => {
+  const { user } = req;
+  const filter = {};
+  if (user.role === "ENG") filter.engineerName = user._id;
+  else if (user.role === "BM") filter.region = user.region;
+  else if (!["CM", "VXR"].includes(user.role))
+    return next(new AppError("Not authorized to view reports", 403));
+  const reports = await ServiceReport.find(filter)
+    .populate("region", "name")
+    .populate("Customer", "name")
+    .populate("engineerName", "username")
+    .populate("spare", "name");
+  const data = reports.map((r) => ({
+    id: r._id,
+    SerialReportNumber: r.SerialReportNumber,
+    Date: r.Date,
+    Customer: r.Customer?.name,
+    region: r.region?.name,
+    engineer: r.engineerName?.username,
+    spareParts: r.spare?.map((s) => s.name),
+    Quotation: r.Quotation,
+    PurchaseOrder: r.PurchaseOrder,
+    Inventory: r.Inventory,
+    MachineType: r.MachineType,
+    Model: r.Model,
+    SerialNumber: r.SerialNumber,
+    ServiceType: r.ServiceType,
+    JobCompleted: r.JobCompleted,
+    description: r.description,
+    dateEntered: r.dateEntered,
+  }));
+  res.status(200).json({ status: "success", count: data.length, data });
+});
+
+/* --------------------------- Get Single Report --------------------------- */
+exports.getReport = catchAsync(async (req, res, next) => {
+  const { user } = req;
+  const r = await ServiceReport.findById(req.params.id)
+    .populate("region", "name")
+    .populate("Customer", "name")
+    .populate("engineerName", "username")
+    .populate("spare", "name");
+  if (!r) return next(new AppError("Report not found", 404));
+  if (
+    user.role === "ENG" &&
+    r.engineerName?._id?.toString() !== user._id.toString()
+  )
+    return next(new AppError("You are not allowed to view this report", 403));
+  if (
+    user.role === "BM" &&
+    r.region?._id?.toString() !== user.region?.toString()
+  )
+    return next(
+      new AppError(
+        "You are not allowed to view reports outside your region",
+        403
+      )
+    );
+  const report = {
+    id: r._id,
+    SerialReportNumber: r.SerialReportNumber,
+    Date: r.Date,
+    Customer: r.Customer?.name,
+    region: r.region?.name,
+    engineer: r.engineerName?.username,
+    spareParts: r.spare?.map((s) => s.name),
+    Quotation: r.Quotation,
+    PurchaseOrder: r.PurchaseOrder,
+    Inventory: r.Inventory,
+    MachineType: r.MachineType,
+    Model: r.Model,
+    SerialNumber: r.SerialNumber,
+    ServiceType: r.ServiceType,
+    JobCompleted: r.JobCompleted,
+    description: r.description,
+    dateEntered: r.dateEntered,
+  };
+  res.status(200).json({ status: "success", data: report });
+});
