@@ -54,62 +54,105 @@ exports.uploadCustomers = catchAsync(async (req, res, next) => {
   const filePath = req.file.path;
   let rows = [];
 
+  // 1️⃣ Read and parse the uploaded file
   try {
     const workbook = XLSX.readFile(filePath);
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
     rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
   } catch (err) {
-    fs.unlinkSync(filePath);
+    await fs.promises.unlink(filePath).catch(() => {});
     return res.status(400).json({
       status: "fail",
       message: "Invalid file format. Please upload a valid CSV or Excel file.",
     });
   }
 
-  const createdCustomers = [];
+  if (!rows.length) {
+    await fs.promises.unlink(filePath).catch(() => {});
+    return res.status(400).json({
+      status: "fail",
+      message: "The uploaded file is empty.",
+    });
+  }
+
+  // 2️⃣ Preload all regions and existing customers in bulk
+  const regionCodes = [
+    ...new Set(
+      rows.map((r) => r.regionCode?.trim().toUpperCase()).filter(Boolean)
+    ),
+  ];
+
+  const regions = await Region.find({ code: { $in: regionCodes } });
+  const regionMap = Object.fromEntries(regions.map((r) => [r.code, r]));
+
+  const customerNames = [
+    ...new Set(rows.map((r) => r.name?.trim()).filter(Boolean)),
+  ];
+
+  // Optional optimization: only check customers from valid regions
+  const existingCustomers = await Customer.find({
+    name: { $in: customerNames },
+  }).populate("region", "code");
+
+  const existingMap = new Map(
+    existingCustomers.map((c) => [`${c.name}-${c.region.code}`, true])
+  );
+
+  // 3️⃣ Prepare bulk inserts in memory
+  const customersToInsert = [];
   const skippedRows = [];
 
   for (const row of rows) {
     const name = row.name?.trim();
-    const regionCode = row.regionCode?.trim();
+    const regionCode = row.regionCode?.trim().toUpperCase();
 
     if (!name || !regionCode) {
       skippedRows.push({ row, reason: "Missing name or regionCode" });
       continue;
     }
 
-    const region = await Region.findOne({ code: regionCode.toUpperCase() });
+    const region = regionMap[regionCode];
     if (!region) {
       skippedRows.push({ row, reason: `Region not found: ${regionCode}` });
       continue;
     }
 
-    const existing = await Customer.findOne({ name, region: region._id });
-    if (existing) {
+    const key = `${name}-${regionCode}`;
+    if (existingMap.has(key)) {
       skippedRows.push({ row, reason: "Duplicate customer" });
       continue;
     }
 
-    const customer = await Customer.create({
+    customersToInsert.push({
       name,
       region: region._id,
     });
 
-    createdCustomers.push({
-      customerId: customer.customerId,
-      name: customer.name,
-      region: region.name,
-      regionCode: region.code,
+    // Mark as existing in memory to avoid duplicates in the same file
+    existingMap.set(key, true);
+  }
+
+  // 4️⃣ Bulk insert customers (massively faster)
+  let createdCustomers = [];
+  if (customersToInsert.length > 0) {
+    const inserted = await Customer.insertMany(customersToInsert, {
+      ordered: false,
     });
+
+    createdCustomers = inserted.map((c) => ({
+      customerId: c.customerId,
+      name: c.name,
+      regionCode: regions.find((r) => r._id.equals(c.region))?.code || null,
+      region: regions.find((r) => r._id.equals(c.region))?.name || null,
+    }));
   }
 
-  // Clean up temporary file
-  try {
-    fs.unlinkSync(filePath);
-  } catch (err) {
+  // 5️⃣ Clean up file asynchronously
+  fs.promises.unlink(filePath).catch((err) => {
     console.warn("⚠️ Could not delete temp file:", err.message);
-  }
+  });
 
+  // 6️⃣ Send final response
   res.status(201).json({
     status: "success",
     results: createdCustomers.length,
