@@ -11,6 +11,7 @@ const AppError = require("./utils/appError");
 const globalErrorHandler = require("./utils/globalErrorHandler");
 const mongoSanitize = require("express-mongo-sanitize");
 const xss = require("xss-clean");
+const cors = require("cors");
 const app = express();
 connectDB()
   .then(() => console.log("Database connected successfully"))
@@ -19,6 +20,16 @@ connectDB()
     process.exit(1);
   });
 // Middleware
+// Allow requests from your frontend
+app.use(
+  cors({
+    origin: process.env.CLIENT_URL || "http://localhost:5174", 
+    credentials: true, // allow cookies & auth headers
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  })
+);
+
 app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -27,6 +38,10 @@ app.use(xss());
 app.use(morgan("dev"));
 // Logging
 app.use(morgan("dev"));
+app.use((req, res, next) => {
+  res.setHeader("Cache-Control", "no-store");
+  next();
+});
 // Routes
 app.use("/api/v1/users", userRouter);
 app.use("/api/v1/customers", customerRoutes);

@@ -67,7 +67,7 @@ userSchema.pre("save", function (next) {
 });
 
 userSchema.pre(/^find/, function (next) {
-  this.find({ active: { $ne: false } }).populate("region", "name");
+  this.find({ active: { $ne: false } }).populate("region", "name code createdAt");
   next();
 });
 

@@ -5,20 +5,25 @@ const catchAsync = require("../utils/catchAsync");
 const AppError = require("../utils/appError");
 
 // ---------------- CREATE SINGLE SPARE ----------------
+// ---------------- CREATE SINGLE SPARE ----------------
 exports.createSpare = catchAsync(async (req, res, next) => {
-  const { name } = req.body;
+  const { name, code } = req.body;
 
-  if (!name) {
-    return next(new AppError("Name is required", 400));
+  if (!name || !code) {
+    return next(new AppError("Both name and code are required", 400));
   }
 
-  const existing = await Spare.findOne({ name });
+  const existing = await Spare.findOne({
+    $or: [{ name }, { code: code.toUpperCase() }],
+  });
+
   if (existing) {
-    return next(new AppError("A spare with this name already exists", 400));
+    return next(
+      new AppError("A spare with this name or code already exists", 400)
+    );
   }
 
-  // Code auto-generated in model
-  const spare = await Spare.create({ name });
+  const spare = await Spare.create({ name, code });
 
   res.status(201).json({
     status: "success",
@@ -44,7 +49,7 @@ exports.uploadSpares = catchAsync(async (req, res, next) => {
   const filePath = req.file.path;
   let rows = [];
 
-  // 1️⃣ Read file and parse Excel/CSV
+  // 1️⃣ Read Excel or CSV
   try {
     const workbook = XLSX.readFile(filePath);
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
@@ -65,57 +70,92 @@ exports.uploadSpares = catchAsync(async (req, res, next) => {
     });
   }
 
-  // 2️⃣ Preprocess names and fetch existing spares
-  const names = [...new Set(rows.map((r) => r.name?.trim()).filter(Boolean))];
+  // 2️⃣ Extract and clean unique names & codes
+  const names = [];
+  const codes = [];
 
-  const existingSpares = await Spare.find({ name: { $in: names } });
-  const existingMap = new Set(existingSpares.map((s) => s.name));
+  for (const r of rows) {
+    const name =
+      typeof r.name === "string" ? r.name.trim() : String(r.name || "").trim();
+    const code =
+      typeof r.code === "string" ? r.code.trim() : String(r.code || "").trim();
 
-  // 3️⃣ Build insert list in memory
+    if (name && code) {
+      names.push(name);
+      codes.push(code.toUpperCase());
+    }
+  }
+
+  const uniqueNames = [...new Set(names)];
+  const uniqueCodes = [...new Set(codes)];
+
+  // 3️⃣ Find existing spares (by name or code)
+  const existingSpares = await Spare.find({
+    $or: [{ name: { $in: uniqueNames } }, { code: { $in: uniqueCodes } }],
+  });
+
+  const existingByName = new Set(existingSpares.map((s) => s.name));
+  const existingByCode = new Set(existingSpares.map((s) => s.code));
+
+  // 4️⃣ Build valid insert list
   const sparesToInsert = [];
   const skippedRows = [];
 
   for (const row of rows) {
-    const name = row.name?.trim();
-    if (!name) {
-      skippedRows.push({ row, reason: "Missing name" });
+    const name =
+      typeof row.name === "string"
+        ? row.name.trim()
+        : String(row.name || "").trim();
+    const code =
+      typeof row.code === "string"
+        ? row.code.trim()
+        : String(row.code || "")
+            .trim()
+            .toUpperCase();
+
+    if (!name || !code) {
+      skippedRows.push({ row, reason: "Missing name or code" });
       continue;
     }
 
-    if (existingMap.has(name)) {
-      skippedRows.push({ row, reason: "Duplicate name in DB" });
+    if (existingByName.has(name)) {
+      skippedRows.push({ row, reason: `Duplicate name in DB: ${name}` });
       continue;
     }
 
-    if (sparesToInsert.find((s) => s.name === name)) {
-      skippedRows.push({ row, reason: "Duplicate name in file" });
+    if (existingByCode.has(code)) {
+      skippedRows.push({ row, reason: `Duplicate code in DB: ${code}` });
       continue;
     }
 
-    sparesToInsert.push({ name });
-    existingMap.add(name); // mark as used
+    if (sparesToInsert.find((s) => s.name === name || s.code === code)) {
+      skippedRows.push({ row, reason: "Duplicate in uploaded file" });
+      continue;
+    }
+
+    sparesToInsert.push({ name, code });
+    existingByName.add(name);
+    existingByCode.add(code);
   }
 
-  // 4️⃣ Bulk insert all spares
+  // 5️⃣ Bulk insert
   let createdSpares = [];
   if (sparesToInsert.length > 0) {
-    const inserted = await Spare.insertMany(sparesToInsert, {
-      ordered: false,
-    });
+    const inserted = await Spare.insertMany(sparesToInsert, { ordered: false });
     createdSpares = inserted.map((s) => ({
       name: s.name,
       code: s.code,
     }));
   }
 
-  // 5️⃣ Async cleanup
+  // 6️⃣ Cleanup
   fs.promises
     .unlink(filePath)
     .catch((err) =>
       console.warn("⚠️ Could not delete temp file:", err.message)
     );
 
-  // 6️⃣ Response
+  // 7️⃣ Response
   res.status(201).json({
     status: "success",
     results: createdSpares.length,
@@ -124,7 +164,6 @@ exports.uploadSpares = catchAsync(async (req, res, next) => {
     skippedRows,
   });
 });
-
 // ---------------- GET ALL SPARES ----------------
 exports.getSpares = catchAsync(async (req, res, next) => {
   const spares = await Spare.find().select("name code createdAt");

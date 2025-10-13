@@ -22,7 +22,13 @@ exports.updateMe = catchAsync(async (req, res, next) => {
       new AppError("Use /updateMyPassword to update your password.", 400)
     );
 
-  const filteredBody = filterObj(req.body, "username", "email", "role", "region");
+  const filteredBody = filterObj(
+    req.body,
+    "username",
+    "email",
+    "role",
+    "region"
+  );
   if (req.file) filteredBody.photo = req.file.filename;
 
   const updatedUser = await User.findByIdAndUpdate(req.user.id, filteredBody, {
@@ -44,7 +50,8 @@ exports.createUser = (req, res) => {
 };
 
 exports.getAllUsers = catchAsync(async (req, res, next) => {
-  const users = await User.find();
+  const users = await User.find().populate("region", "id name code"); // Only include 'id' and 'name' from Region
+  console.log(users);
   res.status(200).json({
     status: "success",
     results: users.length,
@@ -67,7 +74,7 @@ exports.updateUser = catchAsync(async (req, res, next) => {
     const regionNameOrCode = req.body.region;
 
     const regionDoc = await Region.findOne({
-      $or: [{ name: regionNameOrCode }, { code: regionNameOrCode }]
+      $or: [{ name: regionNameOrCode }, { code: regionNameOrCode }],
     });
 
     if (!regionDoc) {
@@ -90,9 +97,7 @@ exports.updateUser = catchAsync(async (req, res, next) => {
   });
 });
 
-
 exports.deleteUser = catchAsync(async (req, res, next) => {
-
   const user = await User.findByIdAndDelete(req.params.id);
 
   if (!user) {

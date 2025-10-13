@@ -1,4 +1,3 @@
-// controllers/customerController.js
 const fs = require("fs");
 const XLSX = require("xlsx");
 const Customer = require("../models/customerModel");
@@ -6,23 +5,12 @@ const Region = require("../models/regionModel");
 const catchAsync = require("../utils/catchAsync");
 const AppError = require("../utils/appError");
 
-// ---------------- CREATE SINGLE CUSTOMER ----------------
+// ---------------- CREATE CUSTOMER ----------------
 exports.createCustomer = catchAsync(async (req, res, next) => {
   const { name, regionCode } = req.body;
 
-  if (!name || !regionCode) {
-    return next(new AppError("Name and regionCode are required", 400));
-  }
-
   const region = await Region.findOne({ code: regionCode.toUpperCase() });
-  if (!region) {
-    return next(new AppError(`No region found with code: ${regionCode}`, 404));
-  }
-
-  const existing = await Customer.findOne({ name, region: region._id });
-  if (existing) {
-    return next(new AppError("Customer already exists in this region", 400));
-  }
+  if (!region) return next(new AppError("Invalid region code", 404));
 
   const customer = await Customer.create({
     name,
@@ -31,154 +19,93 @@ exports.createCustomer = catchAsync(async (req, res, next) => {
 
   res.status(201).json({
     status: "success",
-    data: {
-      customer: {
-        customerId: customer.customerId,
-        name: customer.name,
-        region: region.name,
-        regionCode: region.code,
-      },
-    },
+    data: { customer },
   });
 });
-
-// ---------------- BULK UPLOAD (STRICT HEADERS) ----------------
+// ---------------- BULK UPLOAD CUSTOMERS ----------------
 exports.uploadCustomers = catchAsync(async (req, res, next) => {
   if (!req.file) {
-    return res.status(400).json({
-      status: "fail",
-      message: "No file uploaded",
-    });
+    return next(new AppError("No file uploaded", 400));
   }
 
   const filePath = req.file.path;
-  let rows = [];
 
-  // 1️⃣ Read and parse the uploaded file
   try {
+    // Read workbook
     const workbook = XLSX.readFile(filePath);
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
-    rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+    const data = XLSX.utils.sheet_to_json(sheet);
+
+    if (!data.length) {
+      fs.unlinkSync(filePath);
+      return next(new AppError("Uploaded file is empty", 400));
+    }
+
+    let added = 0;
+    let skipped = 0;
+
+    for (const row of data) {
+      const name = row.name?.trim();
+      const regionCode = row.regionCode?.trim()?.toUpperCase();
+
+      if (!name || !regionCode) {
+        skipped++;
+        continue;
+      }
+
+      const region = await Region.findOne({ code: regionCode });
+      if (!region) {
+        skipped++;
+        continue;
+      }
+
+      // Create a unique customerId format
+      const customerId = `CUS-${regionCode}-${new Date()
+        .toISOString()
+        .slice(0, 10)
+        .replace(/-/g, "")}-${Math.floor(Math.random() * 9999)
+        .toString()
+        .padStart(4, "0")}`;
+
+      // Avoid duplicates (by name)
+      const existing = await Customer.findOne({ name });
+      if (existing) {
+        skipped++;
+        continue;
+      }
+
+      await Customer.create({
+        name,
+        region: region._id,
+        customerId,
+      });
+
+      added++;
+    }
+
+    fs.unlinkSync(filePath);
+
+    res.status(201).json({
+      status: "success",
+      message: "File processed successfully",
+      results: { added, skipped, total: data.length },
+    });
   } catch (err) {
-    await fs.promises.unlink(filePath).catch(() => {});
-    return res.status(400).json({
-      status: "fail",
-      message: "Invalid file format. Please upload a valid CSV or Excel file.",
-    });
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    next(new AppError("Error processing file", 500));
   }
-
-  if (!rows.length) {
-    await fs.promises.unlink(filePath).catch(() => {});
-    return res.status(400).json({
-      status: "fail",
-      message: "The uploaded file is empty.",
-    });
-  }
-
-  // 2️⃣ Preload all regions and existing customers in bulk
-  const regionCodes = [
-    ...new Set(
-      rows.map((r) => r.regionCode?.trim().toUpperCase()).filter(Boolean)
-    ),
-  ];
-
-  const regions = await Region.find({ code: { $in: regionCodes } });
-  const regionMap = Object.fromEntries(regions.map((r) => [r.code, r]));
-
-  const customerNames = [
-    ...new Set(rows.map((r) => r.name?.trim()).filter(Boolean)),
-  ];
-
-  // Optional optimization: only check customers from valid regions
-  const existingCustomers = await Customer.find({
-    name: { $in: customerNames },
-  }).populate("region", "code");
-
-  const existingMap = new Map(
-    existingCustomers.map((c) => [`${c.name}-${c.region.code}`, true])
-  );
-
-  // 3️⃣ Prepare bulk inserts in memory
-  const customersToInsert = [];
-  const skippedRows = [];
-
-  for (const row of rows) {
-    const name = row.name?.trim();
-    const regionCode = row.regionCode?.trim().toUpperCase();
-
-    if (!name || !regionCode) {
-      skippedRows.push({ row, reason: "Missing name or regionCode" });
-      continue;
-    }
-
-    const region = regionMap[regionCode];
-    if (!region) {
-      skippedRows.push({ row, reason: `Region not found: ${regionCode}` });
-      continue;
-    }
-
-    const key = `${name}-${regionCode}`;
-    if (existingMap.has(key)) {
-      skippedRows.push({ row, reason: "Duplicate customer" });
-      continue;
-    }
-
-    customersToInsert.push({
-      name,
-      region: region._id,
-    });
-
-    // Mark as existing in memory to avoid duplicates in the same file
-    existingMap.set(key, true);
-  }
-
-  // 4️⃣ Bulk insert customers (massively faster)
-  let createdCustomers = [];
-  if (customersToInsert.length > 0) {
-    const inserted = await Customer.insertMany(customersToInsert, {
-      ordered: false,
-    });
-
-    createdCustomers = inserted.map((c) => ({
-      customerId: c.customerId,
-      name: c.name,
-      regionCode: regions.find((r) => r._id.equals(c.region))?.code || null,
-      region: regions.find((r) => r._id.equals(c.region))?.name || null,
-    }));
-  }
-
-  // 5️⃣ Clean up file asynchronously
-  fs.promises.unlink(filePath).catch((err) => {
-    console.warn("⚠️ Could not delete temp file:", err.message);
-  });
-
-  // 6️⃣ Send final response
-  res.status(201).json({
-    status: "success",
-    results: createdCustomers.length,
-    skipped: skippedRows.length,
-    customers: createdCustomers,
-    skippedRows,
-  });
 });
 
 // ---------------- GET ALL CUSTOMERS ----------------
 exports.getCustomers = catchAsync(async (req, res, next) => {
-  const customers = await Customer.find()
-    .populate("region", "name code -_id")
+  const customers = await Customer.find({})
+    .populate("region", "name code")
     .select("name customerId region");
-
-  const clean = customers.map((c) => ({
-    customerId: c.customerId,
-    name: c.name,
-    region: c.region?.name || "N/A",
-    regionCode: c.region?.code || "N/A",
-  }));
 
   res.status(200).json({
     status: "success",
-    results: clean.length,
-    customers: clean,
+    results: customers.length,
+    customers,
   });
 });
 
@@ -197,11 +124,10 @@ exports.getCustomerById = catchAsync(async (req, res, next) => {
       .select("name customerId region");
   }
 
-  if (!customer) {
+  if (!customer)
     return next(
       new AppError(`No customer found with ID or customerId: ${id}`, 404)
     );
-  }
 
   res.status(200).json({
     status: "success",
@@ -252,18 +178,14 @@ exports.updateCustomer = catchAsync(async (req, res, next) => {
 // ---------------- DELETE CUSTOMER ----------------
 exports.deleteCustomer = catchAsync(async (req, res, next) => {
   const { id } = req.params;
-  let customer;
 
-  if (id.match(/^[0-9a-fA-F]{24}$/)) {
-    customer = await Customer.findByIdAndDelete(id);
-  } else {
-    customer = await Customer.findOneAndDelete({ customerId: id });
-  }
+  const customer = await Customer.findByIdAndUpdate(
+    id,
+    { isActive: false },
+    { new: true }
+  );
 
-  if (!customer)
-    return next(
-      new AppError(`No customer found with ID or customerId: ${id}`, 404)
-    );
+  if (!customer) return next(new AppError("No customer found", 404));
 
   res.status(204).json({ status: "success", data: null });
 });

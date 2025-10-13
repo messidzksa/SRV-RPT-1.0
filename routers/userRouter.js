@@ -1,30 +1,28 @@
 const express = require("express");
 const userController = require("../controllers/userController");
 const authController = require("../controllers/authcontroller");
-const authorizeRoles = require("../middleware/rolebased");
 
 const router = express.Router();
 
 /* --------------------------- Public Auth Routes -------------------------- */
+router.post("/signup", authController.signup);
 router.post("/login", authController.login);
 router.get("/logout", authController.logout);
-router.post("/signup", authController.signup);
 
 /* --------------------------- Protected Routes ---------------------------- */
-router.use(authController.protect); // Protect all routes after this middleware
+// Get own profile
+router.get("/me", authController.protect, userController.getUser);
 
-router.get("/me", userController.getMe, userController.getUser);
-
-/* ----------------------- Password Update (Admin only) -------------------- */
+// Password update (admin or VXR role only)
 router.patch(
   "/updateMyPassword",
   authController.protect,
-  authorizeRoles("VXR"), // Only admin can do this
+  authController.restrictTo("VXR"),
   authController.updatePassword
 );
 
 /* ---------------------------- Admin-Only Routes -------------------------- */
-router.use(authorizeRoles("VXR")); // Super admin or root only
+router.use(authController.protect, authController.restrictTo("VXR"));
 
 router
   .route("/")

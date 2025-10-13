@@ -2,10 +2,13 @@ const express = require("express");
 const multer = require("multer");
 const authController = require("../controllers/authcontroller");
 const spareController = require("../controllers/sparePartsController");
+
 const router = express.Router();
 const upload = multer({ dest: "/tmp/uploads" });
+
+/* ----------------- Protected + Restricted (VXR Only) ----------------- */
 router.use(authController.protect, authController.restrictTo("VXR"));
-// Admin-only routes
+
 // CRUD Routes
 router.post("/", spareController.createSpare);
 router.get("/", spareController.getSpares);
