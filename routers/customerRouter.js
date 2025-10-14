@@ -9,7 +9,6 @@ const upload = multer({ dest: "tmp/uploads" });
 // Public
 router.get("/", customerController.getCustomers);
 router.get("/region", customerController.getRegion);
-
 // Protected (requires VXR)
 router.use(authController.protect, authController.restrictTo("VXR"));
 
@@ -19,6 +18,7 @@ router.post(
   upload.single("file"),
   customerController.uploadCustomers
 );
+
 router.post("/createRegion", customerController.createRegion);
 router.get("/:id", customerController.getCustomerById);
 router.put("/:id", customerController.updateCustomer);

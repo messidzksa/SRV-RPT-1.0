@@ -50,6 +50,7 @@ const ServiceReportSchema = new mongoose.Schema(
       type: String,
       required: true,
       enum: ["CIJ", "LASER", "TTO", "PALLET", "TAPPING", "SCALE", "OTHER", ""],
+      set: (v) => v?.toUpperCase(),
     },
 
     otherMachineType: {

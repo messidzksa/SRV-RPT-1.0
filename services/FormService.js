@@ -2,30 +2,22 @@ const ServiceReport = require("../models/FormModel");
 const catchAsync = require("../utils/catchAsync");
 const AppError = require("../utils/appError");
 /* ----------------------------- Create Report ----------------------------- */
+// controllers/serviceReportController.js
 exports.createServiceReport = catchAsync(async (req, res, next) => {
-  const user = req.user;
+  const data = req.body;
 
-  // 🧩 Role-based enforcement
-  if (user.role === "ENG") {
-    // Engineers can only assign themselves and their region
-    req.body.engineerName = user._id;
-    req.body.region = user.region;
+  if (!data.region || !data.engineerName) {
+    return next(new AppError("Missing region or engineerName", 400));
   }
 
-  if (user.role === "BM") {
-    // Branch Managers can only assign their own region
-    req.body.region = user.region;
-  }
-
-  // CM and Admin (VXR) can post freely
-  const report = await ServiceReport.create(req.body);
+  const report = await ServiceReport.create(data);
 
   res.status(201).json({
     status: "success",
-    message: "Report created successfully",
     data: { report },
   });
 });
+
 /* ---------------------------- Get All Reports ---------------------------- */
 exports.getAllServiceReports = catchAsync(async (req, res, next) => {
   const { user } = req;
