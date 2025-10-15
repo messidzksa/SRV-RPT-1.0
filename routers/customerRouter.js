@@ -4,7 +4,8 @@ const customerController = require("../controllers/customerController");
 const authController = require("../controllers/authcontroller");
 
 const router = express.Router();
-const upload = multer({ dest: "tmp" });
+const upload = multer({ storage: multer.memoryStorage() });
+
 
 // Public
 router.get("/", customerController.getCustomers);
