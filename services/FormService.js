@@ -22,35 +22,45 @@ exports.createServiceReport = catchAsync(async (req, res, next) => {
 exports.getAllServiceReports = catchAsync(async (req, res, next) => {
   const { user } = req;
   const filter = {};
-  if (user.role === "ENG") filter.engineerName = user._id;
-  else if (user.role === "BM") filter.region = user.region;
-  else if (!["CM", "VXR"].includes(user.role))
+
+  // Role-based filter
+  if (user.role === "ENG") {
+    filter.engineerName = user._id;
+  } else if (user.role === "BM") {
+    filter.region = user.region;
+  } else if (!["CM", "VXR"].includes(user.role)) {
     return next(new AppError("Not authorized to view reports", 403));
+  }
+
+  // Query with population
   const reports = await ServiceReport.find(filter)
     .populate("region", "name")
     .populate("Customer", "name")
     .populate("engineerName", "username")
-    .populate("spare", "name");
-  const data = reports.map((r) => ({
-    id: r._id,
-    SerialReportNumber: r.SerialReportNumber,
-    Date: r.Date,
-    Customer: r.Customer?.name,
-    region: r.region?.name,
-    engineer: r.engineerName?.username,
-    spareParts: r.spare?.map((s) => s.name),
-    Quotation: r.Quotation,
-    PurchaseOrder: r.PurchaseOrder,
-    Inventory: r.Inventory,
-    MachineType: r.MachineType,
-    Model: r.Model,
-    SerialNumber: r.SerialNumber,
-    ServiceType: r.ServiceType,
-    JobCompleted: r.JobCompleted,
-    description: r.description,
-    dateEntered: r.dateEntered,
-  }));
-  res.status(200).json({ status: "success", count: data.length, data });
+    .populate("spare", "name")
+    .select("-__v"); // remove internal Mongoose version key
+
+  // Transform populated fields into plain text
+  const data = reports.map((r) => {
+    const doc = r.toObject({ versionKey: false }); // remove __v
+
+    return {
+      ...doc,
+      Customer: r.Customer?.name || "-",
+      region: r.region?.name || "-",
+      engineerName: r.engineerName?.username || "-",
+      spare:
+        Array.isArray(r.spare) && r.spare.length > 0
+          ? r.spare.map((s) => s.name)
+          : ["-"],
+    };
+  });
+
+  res.status(200).json({
+    status: "success",
+    count: data.length,
+    data,
+  });
 });
 
 /* --------------------------- Get Single Report --------------------------- */
