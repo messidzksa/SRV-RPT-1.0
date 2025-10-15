@@ -4,7 +4,7 @@ const authController = require("../controllers/authcontroller");
 const spareController = require("../controllers/sparePartsController");
 
 const router = express.Router();
-const upload = multer({ dest: "/tmp" });
+const upload = multer({ storage: multer.memoryStorage() });
 
 /* ----------------- Protected + Restricted (VXR Only) ----------------- */
 router.use(authController.protect);
