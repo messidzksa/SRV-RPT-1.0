@@ -51,7 +51,7 @@ exports.uploadSpares = catchAsync(async (req, res, next) => {
 
   // 1️⃣ Read Excel or CSV
   try {
-    const workbook = XLSX.readFile(filePath);
+    const workbook = XLSX.read(req.file.buffer, {type : "buffer"});
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
     rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
   } catch (err) {
