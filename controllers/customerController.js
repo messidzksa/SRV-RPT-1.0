@@ -36,7 +36,7 @@ exports.uploadCustomers = catchAsync(async (req, res, next) => {
 
   try {
     // 2️⃣ Parse Excel or CSV file
-    const workbook = XLSX.readFile(filePath);
+    const workbook = XLSX.read(req.file.buffer, {type : "buffer"});
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
     rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
 
