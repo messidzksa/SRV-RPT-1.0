@@ -6,10 +6,9 @@ const authController = require("../controllers/authcontroller");
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
 
-
 // Public
-router.get("/", customerController.getCustomers);
-router.get("/region",  customerController.getRegion);
+router.get("/", authController.protect, customerController.getCustomers);
+router.get("/region", customerController.getRegion);
 // Protected (requires VXR)
 router.use(authController.protect, authController.restrictTo("VXR"));
 

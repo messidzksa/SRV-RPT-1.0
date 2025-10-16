@@ -183,8 +183,22 @@ exports.uploadCustomers = catchAsync(async (req, res, next) => {
 });
 
 // ---------------- GET ALL CUSTOMERS ----------------
+// controllers/customerController.js
 exports.getCustomers = catchAsync(async (req, res, next) => {
-  const customers = await Customer.find({})
+  const role = req.user?.role;
+  const region = req.user?.region?._id || req.user?.region;
+
+  let filter = {};
+
+  // 🔹 Engineers only see their region
+  if (role !== "CM" && role !== "VXR") {
+    if (!region) {
+      return next(new AppError("User does not have an assigned region.", 400));
+    }
+    filter.region = region;
+  }
+
+  const customers = await Customer.find(filter)
     .populate("region", "name code")
     .select("name customerId region");
 

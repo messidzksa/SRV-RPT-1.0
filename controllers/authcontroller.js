@@ -83,16 +83,25 @@ exports.protect = catchAsync(async (req, res, next) => {
     token = req.cookies.jwt;
   }
 
-  if (!token)
+  if (!token) {
     return next(
       new AppError("You are not logged in! Please log in to get access.", 401)
     );
+  }
 
+  // 1️⃣ Verify token
   const decoded = await promisify(jwt.verify)(token, process.env.JWT_SECRET);
-  const currentUser = await User.findById(decoded.id);
+
+  // 2️⃣ Find user and populate region info
+  const currentUser = await User.findById(decoded.id).populate(
+    "region",
+    "name code"
+  );
+
   if (!currentUser)
     return next(new AppError("User belonging to token no longer exists.", 401));
 
+  // 3️⃣ Check password change
   if (currentUser.changedPasswordAfter(decoded.iat))
     return next(
       new AppError("User recently changed password! Please log in again.", 401)
